@@ -55,16 +55,16 @@ impl ECPoint<Secp256k1Scalar> for Secp256k1Point {
         }
         let mut elem = Affine::default();
         elem.set_xy(&x, &y);
-        return if elem.is_valid_var() {
+        if elem.is_valid_var() {
             Ok(Secp256k1Point { point: elem })
         } else {
             // the default isn't a valid var, but we should be able to parse it anyhow
             if elem == Affine::default() {
-                return Ok(Secp256k1Point::default());
+                Ok(Secp256k1Point::default())
             } else {
                 Err(Error::InvalidCurvePoint)
             }
-        };
+        }
     }
 
     fn from_slice(slice: &[u8]) -> Result<Self, Error> {
@@ -85,7 +85,7 @@ impl ECPoint<Secp256k1Scalar> for Secp256k1Point {
     }
 
     fn to_big_int(&self) -> (BigUint, BigUint) {
-        let x = BigUint::from_bytes_be(&self.point.clone().x.b32());
+        let x = BigUint::from_bytes_be(&self.point.x.b32());
         let y = BigUint::from_bytes_be(&self.point.y.b32());
         (x, y)
     }
@@ -486,7 +486,7 @@ mod tests {
         // tbd: do this
         let val = hex::decode("79BE667EF9DCBBAC55A06295CE870B07029BFCDB2DCE28D959F2815B16F81798483ADA7726A3C4655DA4FBFC0E1108A8FD17B448A68554199C47D08FFB10D4B8").unwrap();
         let from_slice = Secp256k1Point::from_slice(&val).unwrap();
-        let res = from_slice.clone() + from_slice.clone();
+        let res = from_slice.clone() + from_slice;
         let _yo = res.to_big_int();
         assert_eq!(res, res);
     }

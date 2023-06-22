@@ -44,11 +44,11 @@ impl ECScalar for Secp256k1Scalar {
     }
 
     fn zero() -> Secp256k1Scalar {
-        ECScalar::from_big_int(&BigUint::from(0 as u64))
+        ECScalar::from_big_int(&BigUint::from(0_u64))
     }
 
     fn one() -> Secp256k1Scalar {
-        Secp256k1Scalar::from_big_int(&BigUint::from(1 as u64))
+        Secp256k1Scalar::from_big_int(&BigUint::from(1_u64))
     }
 
     fn from_num<T: int::PrimInt>(num: T) -> Self {
@@ -75,7 +75,7 @@ impl ECScalar for Secp256k1Scalar {
     }
 
     fn to_hex(&self) -> String {
-        hex::encode(&self.to_raw())
+        hex::encode(self.to_raw())
     }
 
     fn parse(p: &[u8; SECRET_KEY_SIZE]) -> Secp256k1Scalar {
@@ -282,14 +282,14 @@ mod tests {
         a.copy_from_slice(val.as_slice());
         let _ = scal.set_b32(&mut a);
 
-        let scalar2: Secp256k1Scalar = ECScalar::from_big_int(&BigUint::from(1 as u64));
+        let scalar2: Secp256k1Scalar = ECScalar::from_big_int(&BigUint::from(1_u64));
         let scalar = Secp256k1Scalar { value: scal };
         assert_eq!(scalar, scalar2)
     }
 
     #[test]
     fn test_neg() {
-        let scalar: Secp256k1Scalar = Secp256k1Scalar::from_big_int(&BigUint::from(1 as u64));
+        let scalar: Secp256k1Scalar = Secp256k1Scalar::from_big_int(&BigUint::from(1_u64));
         let expected: Secp256k1Scalar = Secp256k1Scalar::from_big_int(
             &BigUint::from_str(
                 "115792089237316195423570985008687907852837564279074904382605163141518161494336",
@@ -301,16 +301,16 @@ mod tests {
 
     #[test]
     fn test_sub() {
-        let scalar = Secp256k1Scalar::from_big_int(&BigUint::from(1 as u64));
-        let scalar2 = Secp256k1Scalar::from_big_int(&BigUint::from(151 as u64));
-        let expected = Secp256k1Scalar::from_big_int(&BigUint::from(150 as u64));
+        let scalar = Secp256k1Scalar::from_big_int(&BigUint::from(1_u64));
+        let scalar2 = Secp256k1Scalar::from_big_int(&BigUint::from(151_u64));
+        let expected = Secp256k1Scalar::from_big_int(&BigUint::from(150_u64));
         assert_eq!(
             scalar2.clone() - scalar,
             expected,
             "Test simple subtraction"
         );
 
-        let scalar = Secp256k1Scalar::from_big_int(&BigUint::from(150 as u64));
+        let scalar = Secp256k1Scalar::from_big_int(&BigUint::from(150_u64));
         let expected = Secp256k1Scalar::from_big_int(
             &BigUint::from_str(
                 "115792089237316195423570985008687907852837564279074904382605163141518161494336",
@@ -326,18 +326,18 @@ mod tests {
             &hex::decode("3a4cde3a84c4a18d3251e627e5b21743c3db6507f24358ae4b44a1c4ca5ee209")
                 .unwrap(),
         ));
-        let scalar2 = (&scalar).inv();
+        let scalar2 = scalar.inv();
 
-        let expected = Secp256k1Scalar::from_big_int(&BigUint::from(1 as u64));
+        let expected = Secp256k1Scalar::from_big_int(&BigUint::from(1_u64));
 
         assert_eq!(scalar * scalar2, expected)
     }
     #[test]
     fn test_mul() {
-        let scalar = Secp256k1Scalar::from_big_int(&BigUint::from(1 as u64));
-        let scalar2 = Secp256k1Scalar::from_big_int(&BigUint::from(151 as u64));
+        let scalar = Secp256k1Scalar::from_big_int(&BigUint::from(1_u64));
+        let scalar2 = Secp256k1Scalar::from_big_int(&BigUint::from(151_u64));
 
-        let expected = Secp256k1Scalar::from_big_int(&BigUint::from(151 as u64));
+        let expected = Secp256k1Scalar::from_big_int(&BigUint::from(151_u64));
         assert_eq!(
             scalar * scalar2.clone(),
             expected,
@@ -358,11 +358,11 @@ mod tests {
 
     #[test]
     fn test_add() {
-        let scalar = Secp256k1Scalar::from_big_int(&BigUint::from(1 as u64));
-        let scalar2 = Secp256k1Scalar::from_big_int(&BigUint::from(151 as u64));
+        let scalar = Secp256k1Scalar::from_big_int(&BigUint::from(1_u64));
+        let scalar2 = Secp256k1Scalar::from_big_int(&BigUint::from(151_u64));
 
-        let expected = Secp256k1Scalar::from_big_int(&BigUint::from(152 as u64));
-        assert_eq!(scalar + scalar2, expected.clone(), "Test simple addition");
+        let expected = Secp256k1Scalar::from_big_int(&BigUint::from(152_u64));
+        assert_eq!(scalar + scalar2, expected, "Test simple addition");
 
         let scalar3 = Secp256k1Scalar::from_big_int(
             &BigUint::from_str(
@@ -375,9 +375,8 @@ mod tests {
 
     #[test]
     fn test_from_big_int2() {
-        let bigint_from_scalar =
-            Secp256k1Scalar::from_big_int(&BigUint::from(1 as u64)).to_big_int();
-        let bigint = BigUint::from(1 as u64);
+        let bigint_from_scalar = Secp256k1Scalar::from_big_int(&BigUint::from(1_u64)).to_big_int();
+        let bigint = BigUint::from(1_u64);
         assert_eq!(bigint, bigint_from_scalar)
     }
 

@@ -289,7 +289,6 @@ mod tests {
     use super::*;
     use ec_curve::secp256k1::scalar::Secp256k1Scalar;
 
-    use bincode2;
     use rand::thread_rng;
 
     #[test]
@@ -338,7 +337,7 @@ mod tests {
             id: 1,
             threshold: 1,
             share_count: 1,
-            data: scalar_result.clone(),
+            data: scalar_result,
         };
         let val = share + scalar;
 
@@ -361,11 +360,11 @@ mod tests {
             id: 1,
             threshold: 1,
             share_count: 1,
-            data: scalar_result.clone(),
+            data: scalar_result,
         };
 
-        let s0 = vec![share.clone(), share.clone()];
-        let s1 = vec![expected.clone(), expected.clone()];
+        let s0 = vec![share.clone(), share];
+        let s1 = vec![expected.clone(), expected];
         let mut secret_shares: SecretShares<Secp256k1Scalar> = SecretShares::default();
         let mut secret_shares_expected: SecretShares<Secp256k1Scalar> = SecretShares::default();
         secret_shares.0 = s0;

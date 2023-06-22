@@ -44,7 +44,7 @@ pub fn split<T: ECScalar, R: CryptoRng + RngCore>(
 
 pub fn open<T: ECScalar>(shares: Vec<Share<T>>) -> Result<T, Error> {
     // reconstruct using remaining subset of shares
-    if shares.len() == 0 {
+    if shares.is_empty() {
         return Err(Error::NoShares);
     } else if shares.len() < shares[0].threshold as usize {
         return Err(Error::NotEnoughShares);

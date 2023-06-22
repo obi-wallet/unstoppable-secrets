@@ -1,22 +1,23 @@
 use core::ops::{Add, Mul, Neg, Sub};
 
+use super::Error;
 use num_bigint::BigUint;
 use num_traits::int;
 use rand_core::{CryptoRng, RngCore};
-use serde::{Serialize};
 use serde::de::DeserializeOwned;
-use super::Error;
+use serde::Serialize;
 
-pub trait ECScalar where
+pub trait ECScalar
+where
     Self: Add<Output = Self>
-    + Mul<Output = Self>
-    + Sub<Output = Self>
-    + Neg<Output = Self>
-    + PartialEq
-    + Clone
-    + Default
-    + Serialize
-    + DeserializeOwned,
+        + Mul<Output = Self>
+        + Sub<Output = Self>
+        + Neg<Output = Self>
+        + PartialEq
+        + Clone
+        + Default
+        + Serialize
+        + DeserializeOwned,
 {
     fn to_raw(&self) -> [u8; 32];
     fn random<R: RngCore + CryptoRng>(rng: &mut R) -> Self;
@@ -36,15 +37,8 @@ pub trait ECScalar where
 }
 
 pub trait ECPoint<ECScalar>
-    where
-        Self:
-        Add
-        + Mul<ECScalar>
-        + Sub
-        + Neg
-        + Sized
-        + Serialize
-        + DeserializeOwned,
+where
+    Self: Add + Mul<ECScalar> + Sub + Neg + Sized + Serialize + DeserializeOwned,
 {
     fn generator() -> Self;
     fn x(&self) -> ECScalar;
