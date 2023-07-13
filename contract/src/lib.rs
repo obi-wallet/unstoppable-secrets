@@ -1,3 +1,4 @@
+#![warn(unused_extern_crates)]
 pub mod contract;
 mod errors;
 // mod executes;

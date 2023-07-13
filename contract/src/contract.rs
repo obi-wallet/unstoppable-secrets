@@ -1,17 +1,17 @@
 use crate::errors::CustomContractError;
 use cosmwasm_std::{
     ensure, entry_point, to_binary, Binary, DepsMut, Env, MessageInfo, Response, StdError,
-    StdResult,
+    StdResult, Deps, Api,
 };
 
-use libsecp256k1::{Message, SecretKey};
-use libsecp256k1::{RecoveryId, Signature};
+use k256::ecdsa::SigningKey;
+use k256::elliptic_curve::sec1::ToEncodedPoint;
+use k256::PublicKey;
 
-use web3::signing::keccak256;
-
-use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, SignResponse};
+use tiny_keccak::{Keccak as keccak256, Hasher};
 use crate::rng::Prng;
-use crate::state::STATE;
+use crate::msg::{ExecuteMsg, InstantiateMsg, QueryMsg, SignResponse};
+use crate::state::{save_key, may_load_key};
 
 #[entry_point]
 pub fn instantiate(
@@ -53,7 +53,7 @@ pub fn execute(
 }
 
 #[entry_point]
-pub fn query(deps: DepsMut, env: Env, msg: QueryMsg) -> StdResult<Binary> {
+pub fn query(deps: Deps, env: Env, msg: QueryMsg) -> StdResult<Binary> {
     match msg {
         QueryMsg::Sign {
             user_public_key,
@@ -78,23 +78,30 @@ fn update_key_owner(
     hash_to_sign: String,
     hash_signed_by_public_key: String,
 ) -> Result<Response, CustomContractError> {
-    let _state = STATE.load(deps.storage, owner_public_key.as_bytes())?;
-    let state = STATE.may_load(deps.storage, owner_public_key.as_bytes())?;
-    match state {
+    let pk = may_load_key(deps.storage, owner_public_key.as_bytes())?;
+    match pk {
         None => Err(CustomContractError::Std(StdError::generic_err(format!(
             "Key not found: {}",
             owner_public_key
         )))),
         Some(pk) => {
-            verify_signature(hash_to_sign, hash_signed_by_public_key, owner_public_key)?;
-            STATE.save(
+            verify_signature(deps.api, hash_to_sign, hash_signed_by_public_key, owner_public_key)?;
+            save_key(
                 deps.storage,
                 new_owner_public_key.as_bytes(),
-                &hex::decode(pk).unwrap(),
+                hex::decode(pk).unwrap(),
             )?;
             Ok(Response::default())
         }
     }
+}
+
+fn keccak256(bytes: &[u8]) -> [u8; 32] {
+    let mut hasher = keccak256::v256();
+    hasher.update(bytes);
+    let mut hash = [0u8; 32];
+    hasher.finalize(&mut hash);
+    hash
 }
 
 fn add_key(
@@ -104,8 +111,8 @@ fn add_key(
     user_public_key: String,
     inject_privkey: Option<String>,
 ) -> Result<Response, CustomContractError> {
-    let state = STATE.may_load(deps.storage, user_public_key.as_bytes())?;
-    match state {
+    let pk = may_load_key(deps.storage, user_public_key.as_bytes())?;
+    match pk {
         Some(_) => Err(CustomContractError::Std(StdError::generic_err(format!(
             "Key already added: {}",
             user_public_key
@@ -113,45 +120,65 @@ fn add_key(
         None => match inject_privkey {
             None => {
                 let mut rng = Prng::new(b"hello", &[]);
-                let bytes = &mut rng.rand_bytes();
-                let chain_private_key =
-                    libsecp256k1::SecretKey::parse_slice(bytes).map_err(|_e| {
-                        CustomContractError::Std(StdError::generic_err(
-                            "Unable to create private key",
-                        ))
-                    })?;
-                STATE.save(deps.storage, user_public_key.as_bytes(), &bytes.to_vec())?;
-                Ok(Response::new().add_attribute_plaintext(
-                    "pubkey",
-                    format!(
-                        "{:?}",
-                        libsecp256k1::PublicKey::from_secret_key(&chain_private_key)
-                    ),
-                ))
-            }
-            Some(pk) => {
-                let pubkey_bytes = libsecp256k1::PublicKey::from_secret_key(
-                    &SecretKey::parse_slice(&hex::decode(pk.clone()).unwrap()).unwrap(),
-                )
-                .serialize();
-                let pubkey = hex::encode(pubkey_bytes);
-                let eth_hash: [u8; 32] = keccak256(&pubkey_bytes[1..]);
+                let pk_bytes = &mut rng.rand_bytes();
+                
+                let full_pubkey_bytes = full_pubkey_from_pk(pk_bytes.to_vec())?;
+                let full_pubkey = hex::encode(full_pubkey_bytes.clone());
+                println!("PUBKEY is {}", full_pubkey);
+                let eth_hash: [u8; 32] = keccak256(&full_pubkey_bytes[1..]);
+                println!("ETH HASH is {}", hex::encode(&eth_hash));
                 let eth_address = format!("0x{}", hex::encode(&eth_hash[eth_hash.len() - 20..]));
-                STATE.save(
+                save_key(
                     deps.storage,
-                    user_public_key.as_bytes(),
-                    &hex::decode(pk).unwrap(),
+                    &hex::decode(user_public_key)
+                    .map_err(|e| CustomContractError::Std(StdError::generic_err(e.to_string())))?,
+                    pk_bytes.to_vec(),
                 )?;
                 Ok(Response::new()
-                    .add_attribute_plaintext("pubkey", pubkey)
-                    .add_attribute_plaintext("eth_address", eth_address))
+                    .add_attribute_plaintext("pubkey", full_pubkey)
+                    .add_attribute_plaintext("eth_address", eth_address)
+                )
+            }
+            Some(pk) => {
+                let pk_bytes = hex::decode(pk)
+                .map_err(|e| CustomContractError::Std(StdError::generic_err(e.to_string())))?;
+            
+                let full_pubkey_bytes = full_pubkey_from_pk(pk_bytes.clone())?;
+                let full_pubkey = hex::encode(full_pubkey_bytes.clone());
+                println!("PUBKEY is {}", full_pubkey);
+                let eth_hash: [u8; 32] = keccak256(&full_pubkey_bytes[1..]);
+                println!("ETH HASH is {}", hex::encode(&eth_hash));
+                let eth_address = format!("0x{}", hex::encode(&eth_hash[eth_hash.len() - 20..]));
+                save_key(
+                    deps.storage,
+                    &hex::decode(user_public_key)
+                    .map_err(|e| CustomContractError::Std(StdError::generic_err(e.to_string())))?,
+                    pk_bytes,
+                )?;
+                Ok(Response::new()
+                    .add_attribute_plaintext("pubkey", full_pubkey)
+                    .add_attribute_plaintext("eth_address", eth_address)
+                )
             }
         },
     }
 }
 
+fn full_pubkey_from_pk(pk_bytes: Vec<u8>) -> StdResult<Vec<u8>> {
+    
+    let signing_key = SigningKey::from_bytes(pk_bytes.as_slice().into())
+        .expect("Failed to create signing key");
+
+    let verifying_key = k256::ecdsa::VerifyingKey::from(&signing_key);
+    // let pubkey_bytes = EncodedPoint::from(&verifying_key).as_bytes().to_vec();
+    // let compressed_pubkey = hex::encode(pubkey_bytes.clone());
+    let pubkey_key: PublicKey = PublicKey::from(&verifying_key);
+    let public_key_bytes: Vec<u8> = pubkey_key.to_encoded_point(false).as_ref().to_vec();
+    Ok(public_key_bytes)
+}
+
 fn query_sign(
-    deps: DepsMut,
+    deps: Deps,
     _env: Env,
     user_public_key: String,
     hash_to_sign: String,
@@ -159,59 +186,51 @@ fn query_sign(
 ) -> StdResult<SignResponse> {
     ensure!(
         verify_signature(
+            deps.api,
             hash_to_sign.clone(),
             hash_signed_by_public_key,
             user_public_key.clone()
         )?,
         StdError::generic_err("Unauthorized: signature verification failed")
     );
-    let user_record = STATE.may_load(deps.storage, user_public_key.as_bytes())?;
-    match user_record {
+    let pk = may_load_key(deps.storage, &hex::decode(user_public_key.clone())
+    .map_err(|e| StdError::generic_err(e.to_string()))?)?;
+    match pk {
         None => Err(StdError::generic_err(format!(
             "User not found: {}",
             user_public_key
         ))),
         Some(privkey) => {
-            let signature = sig_string_from_hash(hash_to_sign, privkey)?;
+            let signature = sig_string_from_hash(deps.api, hash_to_sign, privkey)?;
             Ok(SignResponse { signature })
         }
     }
 }
 
-fn verify_signature(message: String, signature: String, pubkey: String) -> StdResult<bool> {
-    Ok(libsecp256k1::verify(
-        &hash_message(message_from_string(message))?,
-        &libsecp256k1::Signature::parse_standard_slice(
-            &hex::decode(signature).map_err(|e| StdError::generic_err(e.to_string()))?,
-        )
-        .map_err(|e| StdError::generic_err(e.to_string()))?,
-        &pubkey_from_string(pubkey),
-    ))
+fn verify_signature(api: &dyn Api, message: String, signature: String, pubkey: String) -> StdResult<bool> {
+    Ok(api.secp256k1_verify(
+        &hash_message(&message_from_string(message)),
+        &hex::decode(signature).map_err(|e| StdError::generic_err(e.to_string()))?,
+        &hex::decode(pubkey).map_err(|e| StdError::generic_err(e.to_string()))?,
+    )?)
 }
 
-fn pubkey_from_string(pubkey: String) -> libsecp256k1::PublicKey {
-    libsecp256k1::PublicKey::parse_slice(&hex::decode(pubkey).unwrap(), None).unwrap()
+fn message_from_string(message: String) -> Vec<u8> {
+    hex::decode(message).unwrap()
 }
 
-fn message_from_string(message: String) -> libsecp256k1::Message {
-    libsecp256k1::Message::parse_slice(&hex::decode(message).unwrap()).unwrap()
-}
-
-fn sig_string_from_hash(hash: String, privkey: Vec<u8>) -> StdResult<String> {
+fn sig_string_from_hash(api: &dyn Api, hash: String, privkey: Vec<u8>) -> StdResult<String> {
     let msg = message_from_string(hash);
-    let sig: (Signature, RecoveryId) = libsecp256k1::sign(
-        &hash_message(msg)?,
-        &SecretKey::parse_slice(&privkey).unwrap(),
-    );
-    let mut sig_ser = sig.0.serialize().to_vec();
-    sig_ser.push(sig.1.serialize());
-    Ok(hex::encode(sig_ser))
+    let sig = api.secp256k1_sign(
+        &hash_message(&msg),
+        &privkey,
+    ).map_err(|e| StdError::generic_err(e.to_string()))?;
+    Ok(hex::encode(sig))
 }
 
-fn hash_message(message: libsecp256k1::Message) -> StdResult<Message> {
+fn hash_message(message: &[u8]) -> [u8; 32] {
     const PREFIX: &str = "\x19Ethereum Signed Message:\n";
 
-    let message = message.serialize();
     let len = message.len();
     let len_string = len.to_string();
 
@@ -220,7 +239,7 @@ fn hash_message(message: libsecp256k1::Message) -> StdResult<Message> {
     eth_message.extend_from_slice(len_string.as_bytes());
     eth_message.extend_from_slice(&message);
 
-    Message::parse_slice(&keccak256(&eth_message)).map_err(|e| StdError::generic_err(e.to_string()))
+    keccak256(&eth_message)
 }
 
 #[cfg(test)]
@@ -229,8 +248,6 @@ mod tests {
 
     use cosmwasm_std::testing::{mock_dependencies, mock_env, mock_info};
     use cosmwasm_std::{coins, from_binary};
-    #[allow(unused_imports)]
-    use ethereum_types::H160;
 
     fn instantiate_contract(deps: DepsMut) -> MessageInfo {
         let msg = InstantiateMsg {};
@@ -255,7 +272,15 @@ mod tests {
             public_key: PUBKEY.to_string(),
             inject_privkey: Some(PRIVKEY.to_string()),
         };
-        let res = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
+        let res: Response = execute(deps.as_mut(), mock_env(), info.clone(), msg).unwrap();
+        println!("Response: {:#?}", res);
+
+        // add a random generated key too
+        let msg = ExecuteMsg::AddKey {
+            public_key: "040ea90e713bcb02581de510611857770cb91b64969582b0943e3e7a5550b84856baa906964dca107a4401d325bd571faeca4270d22390f799a9cfb79e7456e458".to_string(),
+            inject_privkey: None,
+        };
+        let res: Response = execute(deps.as_mut(), mock_env(), info, msg).unwrap();
         println!("Response: {:#?}", res);
 
         let query_msg = QueryMsg::Sign {
@@ -264,7 +289,7 @@ mod tests {
             hash_signed_by_public_key: "d03e39ff3c8f0d4ba23e37ce0d2ce3a8b2ad6d549026baed3c05f5925db43da23228129d141c9f2f0a501fae661467042bfe6593f535a17da4484b7a3dfea6dd".to_string(),
         };
         let query_res: SignResponse =
-            from_binary(&query(deps.as_mut(), mock_env(), query_msg).unwrap()).unwrap();
+            from_binary(&query(deps.as_ref(), mock_env(), query_msg).unwrap()).unwrap();
         println!("Query response: {:#?}", query_res);
     }
 }
